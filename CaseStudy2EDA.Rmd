@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 # Install and Load Libraries as needed
 library(pacman)
-p_load("summarytools", "dplyr", "ggplot2")
+p_load("summarytools", "dplyr", "ggplot2", "wesanderson", "RColorBrewer", "ggsci")
 ```
 
 # Load the data
@@ -30,11 +30,47 @@ print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
 
 # Visualize Attrition
 
+## By Age
+
+```{r}
+ggplot(df) + 
+  geom_histogram(mapping = aes(x=Age, fill=Attrition)) + 
+  ggtitle("Distribution of Attrition by Age") + 
+  scale_fill_jco() +
+  ggtitle("Attrition by Age")
+```
+
+```{r}
+# Helper function to plot attrition rate by anything...
+plot_attrition_rate_by <- function(data, column) {
+  dfTemp <- data %>%
+  group_by_(column) %>%
+  count(Attrition) %>%
+  mutate(AttritionRate = n/sum(n)) %>%
+  filter(Attrition == "Yes")
+
+  ggplot(dfTemp, aes_string(x=column, y="AttritionRate", group=1)) +
+    geom_line(size=1) +
+    geom_smooth() + 
+    geom_point(size=2) + 
+    scale_color_jco() +
+    scale_fill_jco() +
+    ggtitle(paste("Attrition Rate by", column)) + 
+    ylab("Attrition Rate")
+}
+```
+
+
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "Age")
+```
+
 ```{r}
 df$age_group <- 
   cut(df$Age, 
-      breaks = c(17,30,40,50,Inf), 
-      labels = c("18-30", "30-40", "40-50", "50+"))
+      breaks = c(17,22,26,30,34,38,42,46,50,Inf), 
+      labels = c("18-22", "22-26", "26-30", "30-34", "34-38", "38-42", "42-46", "46-50", "50+"))
 
 df.age_eda <- df %>%
   group_by(age_group) %>%
@@ -42,12 +78,81 @@ df.age_eda <- df %>%
   mutate(age_group_attr = n/sum(n)) %>%
   filter(Attrition == "Yes")
 
-ggplot(df.age_eda, aes(x=age_group, y=age_group_attr)) +
-  geom_point() +
-  facet_wrap(~ Attrition)
+ggplot(df.age_eda, aes(x=age_group, y=age_group_attr, group=1)) +
+  geom_line(size=1) +
+  geom_point(size=2) + 
+  scale_color_jco() +
+  scale_fill_jco() +
+  ggtitle("Attrition Rate by Age Group") + 
+  ylab("Attrition Rate")
 ```
 
+## DistanceFromHome
 
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "DistanceFromHome")
+```
+## JobSatisfaction
+
+```{r  warning=F, message=F}
+plot_attrition_rate_by(df, "JobSatisfaction")
+```
+
+## JobLevel
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "JobLevel")
+```
+## JobInvolvement
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "JobInvolvement")
+```
+
+## NumCompaniesWorked
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "NumCompaniesWorked")
+```
+
+## PercentSalaryHike
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "PercentSalaryHike")
+```
+## TrainingTimesLastYear
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "TrainingTimesLastYear")
+```
+
+## WorkLifeBalance
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "WorkLifeBalance")
+```
+
+## YearsAtCompany
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "YearsAtCompany")
+```
+## YearsInCurrentRole
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "YearsInCurrentRole")
+```
+
+## YearsSinceLastPromotion
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "YearsSinceLastPromotion")
+```
+## YearsWithCurrManager
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "YearsWithCurrManager")
+```
 
 ## R Markdown
 

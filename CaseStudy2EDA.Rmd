@@ -12,14 +12,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 # Install and Load Libraries as needed
 library(pacman)
-p_load("summarytools", "dplyr", "ggplot2", "wesanderson", "RColorBrewer", "ggsci")
+p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC")
 ```
 
 # Load the data
 
 ```{r  eruptions, echo=FALSE}
 library(readr)
-df <- read_csv("doc/CaseStudy2-data.csv")
+df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
 ```
 
 # Summarize the raw data
@@ -28,7 +28,24 @@ df <- read_csv("doc/CaseStudy2-data.csv")
 print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
 ```
 
+```{r}
+df <- df %>% select(c(-StandardHours, -Over18, -EmployeeCount))
+```
+
+
+```{r}
+str(df)
+```
+
 # Visualize Attrition
+
+## Attrition Distribution
+
+```{r}
+table(df$Attrition)
+```
+
+Attrition records represent a small minority of the people represented in this data.
 
 ## By Age
 
@@ -154,22 +171,264 @@ plot_attrition_rate_by(df, "YearsSinceLastPromotion")
 plot_attrition_rate_by(df, "YearsWithCurrManager")
 ```
 
-## R Markdown
+## JobRole
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r warning=F, message=F}
+plot_attrition_rate_hbar_by <- function(data, column) {
+  dfTemp <- data %>%
+    group_by_(column) %>%
+    count(Attrition) %>%
+    mutate(AttritionRate = n/sum(n)) %>%
+    filter(Attrition == "Yes")
+  dfTemp <- dfTemp %>%
+    arrange(desc(AttritionRate))
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+  ggplot(dfTemp, aes_string(x=paste0("reorder(",column,", AttritionRate)"), y="AttritionRate")) +
+    geom_col() +
+    coord_flip() + 
+    scale_color_jco() +
+    scale_fill_jco() +
+    ggtitle(paste("Attrition Rate by", column)) + 
+    ylab("Attrition Rate")
+}
 
-```{r cars}
-summary(cars)
+
+plot_attrition_rate_hbar_by(df, "JobRole")
 ```
 
-## Including Plots
+```{r}
+dfTemp <- df
+dfTemp$JobSatisfactionF = as.factor(df$JobSatisfaction)
 
-You can also embed plots, for example:
+dfTemp <- dfTemp %>%
+    group_by(JobRole) %>%
+    count(JobSatisfaction) %>%
+    mutate(JobSatisfactionPerc = n/sum(n))
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+ggplot(dfTemp, aes(fill=as.factor(JobSatisfaction), y=JobSatisfactionPerc, x=JobRole)) + 
+  geom_bar(position="dodge", stat="identity") + 
+  coord_flip() + 
+  scale_color_jco() +
+  scale_fill_jco() +
+  ggtitle("Job Satisfaction as a % of people in each Job Role")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+## JobRole by Age
+
+```{r warning=F, message=F}
+plot_attrition_rate_and_facet_by <- function(data, column, facet_column) {
+  dfTemp <- data %>%
+  group_by_(column, facet_column) %>%
+  count(Attrition) %>%
+  mutate(AttritionRate = n/sum(n)) %>%
+  filter(Attrition == "Yes")
+
+  ggplot(dfTemp, aes_string(x=column, y="AttritionRate", group=1)) +
+    geom_line(size=1) +
+    geom_smooth() + 
+    geom_point(size=2) + 
+    scale_color_jco() +
+    scale_fill_jco() +
+    facet_wrap(facet_column) + 
+    ggtitle(paste("Attrition Rate by", column)) + 
+    ylab("Attrition Rate")
+}
+
+plot_attrition_rate_and_facet_by(df, "Age", "JobRole")
+```
+
+# Checking for correlation
+
+```{r warning=F, message=F}
+# Look for high correlation
+
+# Only look at numeric fields, and omit ones with constant values
+df.numeric <- df[, sapply(df, is.numeric)]
+df.without_na <- na.omit(df.numeric)
+
+corrs = cor(df.without_na) # Calculate correlations between all variables
+high_corrs = findCorrelation(corrs, cutoff=0.5)
+corrs = cor(df.without_na[,high_corrs]) # get a data frame with only highly correlated variables
+
+#Create corrplot for numeric variables
+corrplot(corrs)
+```
+
+```{r warning=F, message=F}
+ggpairs(df.without_na[,high_corrs])
+```
+
+# Identify the top factors contributing to turnover
+
+```{r}
+df <- df %>% relocate(Attrition, .after = last_col())
+
+set.seed(1234)
+RFcontrol <- rfeControl(
+  functions=rfFuncs, 
+  method="cv", 
+  number=5, 
+  verbose = FALSE)
+
+sizes <- c(1:5, 10, 15, 20)
+
+RFresults <- rfe(df[,1:(ncol(df)-1)], 
+                 df[[ncol(df)]], 
+                 sizes=sizes, 
+                 rfeControl=RFcontrol)
+
+RFresults
+varImp(RFresults)
+```
+
+The Top factors that contribute to turnover are:
+1. OverTime
+...
+
+# Train/Test Split
+
+```{r}
+set.seed(1234)
+num_rows <- nrow(df)
+train_idx <- sample(1:num_rows, 0.8 * num_rows)
+test_idx <- setdiff(1:num_rows, train_idx)
+train <- df[train_idx, ]
+test <- df[test_idx, ]
+```
+
+
+# Simple Logistic Regression
+
+```{r}
+
+```
+
+# KNN
+
+For KNN, I'm optimizing for Kappa, which is more appropriate for imbalanced classes
+
+```{r}
+set.seed(12)
+cv_control <- trainControl(
+  method="repeatedcv",
+  repeats = 3, 
+  number = 5,
+  classProbs = TRUE,
+  savePredictions = TRUE,
+#  summaryFunction = twoClassSummary
+  )
+
+fitKNN <- train(Attrition ~ ., 
+               data = train, 
+               method = "knn", 
+               metric = "Kappa",
+               trControl = cv_control,
+               preProcess = c("center","scale"),
+#               tuneLength=20
+               tuneGrid = expand.grid(k = c(1:5, 10, 20))
+               )  
+fitKNN
+```
+
+```{r}
+plot(fitKNN)
+confusionMatrix(fitKNN)
+```
+
+```{r}
+fitKNN.predictions.raw <- predict(fitKNN, newdata = test, type="raw")
+fitKNN.predictions.prob <- predict(fitKNN, newdata = test, type="prob")
+confusionMatrix(fitKNN.predictions.raw, test$Attrition, positive="Yes")
+```
+
+```{r warning=F, message=F}
+prediction.probabilities <- fitKNN.predictions.prob$Yes
+predicted.classes <- fitKNN.predictions.raw
+observed.classes <- test$Attrition
+
+res.roc <- roc(observed.classes, prediction.probabilities)
+plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
+```
+
+
+# Random Forest
+
+# Train a Random Forest, tuning mtry and splitrule
+
+```{r}
+set.seed(12)
+cv_control <- trainControl(method="cv", 
+                     classProbs = TRUE,
+                     savePredictions = TRUE,
+                     summaryFunction = twoClassSummary,
+                     num = 5)
+
+rf_grid <- expand.grid(
+  mtry = 4:8,
+  splitrule = c("gini","extratrees", "hellinger"),
+  min.node.size = c(1)
+)
+
+fitRF <- train(Attrition ~ ., 
+               data = train, 
+               method = "ranger", 
+               metric = "ROC",
+               trControl = cv_control,
+               num.threads = 6,
+               num.trees = 100,
+               tuneGrid=rf_grid)  
+fitRF
+```
+
+# Performance on Training Set
+
+```{r}
+plot(fitRF)
+confusionMatrix(fitRF)
+```
+
+# Performance on Test Set
+
+```{r}
+fitRF.predictions.raw <- predict(fitRF, newdata = test, type="raw")
+fitRF.predictions.prob <- predict(fitRF, newdata = test, type="prob")
+confusionMatrix(fitRF.predictions.raw, test$Attrition, positive="Yes")
+```
+
+
+# ROC Curve and Optimal Cutoff
+
+```{r warning=F, message=F}
+prediction.probabilities <- fitRF.predictions.prob$Yes
+predicted.classes <- fitRF.predictions.raw
+observed.classes <- test$Attrition
+
+# Compute roc
+res.roc <- roc(observed.classes, prediction.probabilities)
+plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
+
+# If we wanted cutoffs for specific specificities we specifically specify, we could do THIS:
+#roc.data <- data_frame(
+#  thresholds = res.roc$thresholds,
+#  sensitivity = res.roc$sensitivities,
+#  specificity = res.roc$specificities
+#)
+# Then we can get the cutoff for specificity = <something> like this
+#roc.data %>% filter(specificity >= 0.6)
+#...or similar
+
+```
+
+```{r}
+# Get the best cutoff for balancing Sensitivity and Specificity
+cutoff <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
+
+# Predict using the best cutoff and confirm with a Confusion Matrix
+predicted.classes.balanced <- factor(
+  ifelse( fitRF.predictions.prob$Yes > cutoff, "Yes", "No"), levels=c("No","Yes"))
+confusionMatrix(predicted.classes.balanced, test$Attrition, positive="Yes")
+```
+
+

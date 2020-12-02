@@ -292,6 +292,7 @@ The Top factors that contribute to turnover are:
 1. OverTime
 ...
 
+
 # Clean/Train/Test Split
 
 ```{r}
@@ -319,6 +320,43 @@ train <- df[train_idx, ]
 test <- df[test_idx, ]
 ```
 
+
+# MonthlyIncome
+
+# Random Forest
+
+# Train a Random Forest, tuning mtry and splitrule
+
+```{r}
+set.seed(12)
+cv_control <- trainControl(method="cv", 
+                     num = 5)
+
+fitRF.MonthlyIncome <- train(MonthlyIncome ~ ., 
+               data = train, 
+               method = "ranger", 
+               trControl = cv_control,
+               num.threads = 6,
+               num.trees = 100
+               )
+fitRF.MonthlyIncome
+```
+
+# Performance on Training Set
+
+```{r}
+summary(fitRF.MonthlyIncome)
+plot(fitRF.MonthlyIncome)
+```
+
+```{r}
+test.MonthlyIncome_RF <- predict(fitRF.MonthlyIncome, newdata = test)
+RMSE(test.MonthlyIncome_RF, test$MonthlyIncome)
+RMSE(test.MonthlyIncome_RF, test$MonthlyIncome) / mean(test$MonthlyIncome)
+```
+
+
+# Attrition ------
 
 # KNN
 
@@ -488,11 +526,27 @@ dfNoAttritionSubmission <- data.frame(ID = dfNoAttrition$ID, Attrition = dfNoAtt
 write.csv(dfNoAttritionSubmission, "Case2PredictionsLichti Attrition.csv")
 ```
 
-
 # Comp Set: No Salary
 
 ## Load the No Salary comp set and clean it the same way we did for modeling
 
+```{r}
+dfNoSalary <- read.csv("doc/CaseStudy2CompSet No Salary.csv", stringsAsFactors=TRUE)
+dfNoSalary <- clean.for.modeling(dfNoSalary)
+```
+
 ## Predict Salary
+
+```{r}
+dfNoSalary$MonthlyIncome <- predict(fitRF.MonthlyIncome, newdata = dfNoSalary)
+```
+
+
+## Save
+
+```{r}
+dfNoSalarySubmission <- data.frame(ID = dfNoSalary$ID, MonthlyIncome = dfNoSalary$MonthlyIncome)
+write.csv(dfNoSalarySubmission, "Case2PredictionsLichti Salary.csv")
+```
 
 

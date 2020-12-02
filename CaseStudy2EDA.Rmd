@@ -12,13 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 # Install and Load Libraries as needed
 library(pacman)
-p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC")
+p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC", "readr")
 ```
 
 # Load the data
 
 ```{r  eruptions, echo=FALSE}
-library(readr)
 df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
 ```
 
@@ -29,7 +28,19 @@ print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
 ```
 
 ```{r}
-df <- df %>% select(c(-StandardHours, -Over18, -EmployeeCount))
+clean.for.eda <- function(dirty) {
+  dfTemp <- dirty
+  
+  dfTemp$age_group <- cut(dfTemp$Age, 
+      breaks = c(17,22,26,30,34,38,42,46,50,Inf), 
+      labels = c("18-22", "22-26", "26-30", "30-34", "34-38", "38-42", "42-46", "46-50", "50+"))
+
+  dfTemp <- dfTemp %>% relocate(Attrition, .after = last_col())
+
+  dfTemp
+}
+
+df <- clean.for.eda(df)
 ```
 
 
@@ -47,7 +58,7 @@ table(df$Attrition)
 
 Attrition records represent a small minority of the people represented in this data.
 
-## By Age
+## Attrition Bar Plot By Age
 
 ```{r}
 ggplot(df) + 
@@ -84,11 +95,6 @@ plot_attrition_rate_by(df, "Age")
 ```
 
 ```{r}
-df$age_group <- 
-  cut(df$Age, 
-      breaks = c(17,22,26,30,34,38,42,46,50,Inf), 
-      labels = c("18-22", "22-26", "26-30", "30-34", "34-38", "38-42", "42-46", "46-50", "50+"))
-
 df.age_eda <- df %>%
   group_by(age_group) %>%
   count(Attrition) %>%
@@ -245,6 +251,7 @@ plot_attrition_rate_and_facet_by(df, "Age", "JobRole")
 # Look for high correlation
 
 # Only look at numeric fields, and omit ones with constant values
+df <- df %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -ID))
 df.numeric <- df[, sapply(df, is.numeric)]
 df.without_na <- na.omit(df.numeric)
 
@@ -263,8 +270,6 @@ ggpairs(df.without_na[,high_corrs])
 # Identify the top factors contributing to turnover
 
 ```{r}
-df <- df %>% relocate(Attrition, .after = last_col())
-
 set.seed(1234)
 RFcontrol <- rfeControl(
   functions=rfFuncs, 
@@ -287,9 +292,25 @@ The Top factors that contribute to turnover are:
 1. OverTime
 ...
 
-# Train/Test Split
+# Clean/Train/Test Split
 
 ```{r}
+clean.for.modeling <- function(dirty) {
+  dfTemp <- dirty %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount))
+
+  dfTemp$age_group <- cut(dfTemp$Age, 
+      breaks = c(17,22,26,30,34,38,42,46,50,Inf), 
+      labels = c("18-22", "22-26", "26-30", "30-34", "34-38", "38-42", "42-46", "46-50", "50+"))
+
+  dfTemp
+}
+
+df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
+df <- clean.for.modeling(df)
+
+df <- df %>% dplyr::select(c(-ID))
+df <- df %>% relocate(Attrition, .after = last_col())
+
 set.seed(1234)
 num_rows <- nrow(df)
 train_idx <- sample(1:num_rows, 0.8 * num_rows)
@@ -298,12 +319,6 @@ train <- df[train_idx, ]
 test <- df[test_idx, ]
 ```
 
-
-# Simple Logistic Regression
-
-```{r}
-
-```
 
 # KNN
 
@@ -351,6 +366,17 @@ observed.classes <- test$Attrition
 res.roc <- roc(observed.classes, prediction.probabilities)
 plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
 ```
+
+```{r}
+# Get the best cutoff for balancing Sensitivity and Specificity
+cutoff <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
+
+# Predict using the best cutoff and confirm with a Confusion Matrix
+predicted.classes.balanced <- factor(
+  ifelse( fitKNN.predictions.prob$Yes > cutoff, "Yes", "No"), levels=c("No","Yes"))
+confusionMatrix(predicted.classes.balanced, test$Attrition, positive="Yes")
+```
+
 
 
 # Random Forest
@@ -423,12 +449,50 @@ plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
 
 ```{r}
 # Get the best cutoff for balancing Sensitivity and Specificity
-cutoff <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
+cutoff.randomforest <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
 
 # Predict using the best cutoff and confirm with a Confusion Matrix
 predicted.classes.balanced <- factor(
-  ifelse( fitRF.predictions.prob$Yes > cutoff, "Yes", "No"), levels=c("No","Yes"))
+  ifelse( fitRF.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
 confusionMatrix(predicted.classes.balanced, test$Attrition, positive="Yes")
 ```
+
+
+# Model Comparison
+
+
+# Comp Set: No Attrition
+
+## Load the No Attrition comp set and clean it the same way we did for modeling
+
+```{r}
+dfNoAttrition <- read.csv("doc/CaseStudy2CompSet No Attrition.csv", stringsAsFactors=TRUE)
+dfNoAttrition <- clean.for.modeling(dfNoAttrition)
+```
+
+## Predict Attrition using our best model from the training above
+
+```{r}
+# Use the best model to get predicted probabilities for each class
+dfNoAttrition.predictions.prob <- predict(fitRF, newdata = dfNoAttrition, type="prob")
+
+# Use the most balanced cutoff on the predicted probabilities to get the Attrition values
+dfNoAttrition.predictions.class <- factor(
+  ifelse( dfNoAttrition.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
+```
+
+## Save
+
+```{r}
+dfNoAttritionSubmission <- data.frame(ID = dfNoAttrition$ID, Attrition = dfNoAttrition.predictions.class)
+write.csv(dfNoAttritionSubmission, "Case2PredictionsLichti Attrition.csv")
+```
+
+
+# Comp Set: No Salary
+
+## Load the No Salary comp set and clean it the same way we did for modeling
+
+## Predict Salary
 
 

@@ -12,7 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 # Install and Load Libraries as needed
 library(pacman)
-p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC", "readr")
+p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC", "readr",
+       "randomForestExplainer")
 ```
 
 # Load the data
@@ -26,6 +27,13 @@ df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
 ```{r}
 print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
 ```
+
+From dfSummary, I can see: 
+* Age is normally distributed
+* These are right skewed: DistanceFromHome, MonthlyIncome, PercentSalaryHike, TotalWorkingYears, YearsAtCompany, YearsInCurrentRole, YearsSinceLastPromotion, and YearsWithCurrManager.
+* These have static values: Over18, StandardHours, EmployeeCount
+* ID is likely not helpful for prediction, but may be helpful for investigation
+
 
 ```{r}
 clean.for.eda <- function(dirty) {
@@ -177,6 +185,25 @@ plot_attrition_rate_by(df, "YearsSinceLastPromotion")
 plot_attrition_rate_by(df, "YearsWithCurrManager")
 ```
 
+## Compensation
+
+```{r}
+plot_attrition_rate_by(df, "HourlyRate")
+plot_attrition_rate_and_facet_by(df, "HourlyRate", "OverTime")
+plot_attrition_rate_by(df, "MonthlyRate")
+plot_attrition_rate_by(df, "DailyRate")
+plot_attrition_rate_by(df, "MonthlyIncome")
+```
+
+
+## Overtime
+
+```{r warning=F, message=F}
+plot_attrition_rate_by(df, "OverTime")
+```
+
+Attrition is significantly higher for those with OverTime
+
 ## JobRole
 
 ```{r warning=F, message=F}
@@ -251,8 +278,8 @@ plot_attrition_rate_and_facet_by(df, "Age", "JobRole")
 # Look for high correlation
 
 # Only look at numeric fields, and omit ones with constant values
-df <- df %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -ID))
-df.numeric <- df[, sapply(df, is.numeric)]
+dfTemp <- dfTemp %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -ID))
+df.numeric <- dfTemp[, sapply(dfTemp, is.numeric)]
 df.without_na <- na.omit(df.numeric)
 
 corrs = cor(df.without_na) # Calculate correlations between all variables
@@ -263,11 +290,125 @@ corrs = cor(df.without_na[,high_corrs]) # get a data frame with only highly corr
 corrplot(corrs)
 ```
 
+While there are some intuitive correlations, such as YearsAtCompany and YearsWithCurrentManager, I don't see why we should exclude any of these, which may contribute unique value.
+
+
 ```{r warning=F, message=F}
 ggpairs(df.without_na[,high_corrs])
 ```
 
-# Identify the top factors contributing to turnover
+
+# T-test to compare each group
+Because both distrubitions differ significantly from normality we log tranform them in order to do a t-test and see if there is evidence that the distributions differ significantly from each other. 
+
+The QQ Plot of the log transformed MonthlyIncome for each group shows much better adherence to normality, and brings the variance of each group much closer together. 
+
+The T-test itself shows there is a significant difference between the Monthly Incomes of "Yes" vs "No" attrition groups, p-value < 0.0001. This is strong evidence that MonthlyIncome has an effect on Attrition
+
+
+```{r}
+# make vectors for monthly income by attrition
+#emp_clean.df$MonthlyIncome[emp_clean.df$Attrition == "Yes"] -> mo_income_yes
+#emp_clean.df$MonthlyIncome[emp_clean.df$Attrition == "No"] -> mo_income_no
+# number of yes vs no attrition
+# length(mo_income_yes)
+# length(mo_income_no)
+# summary(mo_income_yes) 
+# summary(mo_income_no) 
+# sd(mo_income_yes) 
+# sd(mo_income_no) 
+# # histogram of each
+# hist(mo_income_yes, xlab = "Dollars", main = "Salary for Attrition: Yes")
+# hist(mo_income_no, xlab = "Dollars", main = "Salary for Attrition: No")
+# 
+# # taking log of each
+# qqnorm(log(mo_income_yes))
+# qqnorm(log(mo_income_no))
+# # even using the log of both still get 
+# # to be safe we account for unequal variance
+# t.test(log(mo_income_no), log(mo_income_yes), var.equal = F) 
+
+```
+
+
+# Identify the top factors contributing to Monthly Income
+
+```{r}
+set.seed(1234)
+RFcontrol <- rfeControl(
+  functions=rfFuncs, 
+  method="cv", 
+  number=5, 
+  verbose = FALSE)
+
+sizes <- c(1:5, 10, 15, 20)
+
+dfTemp <- df %>% relocate(MonthlyIncome, .after = last_col())
+
+RFresults <- rfe(dfTemp[,1:(ncol(dfTemp)-1)], 
+                 dfTemp[[ncol(dfTemp)]], 
+                 sizes=sizes, 
+                 rfeControl=RFcontrol)
+
+RFresults
+varImp(RFresults)
+```
+
+For MonthlyIncome, the top factors are JobLevel, JobRole, and TotalWorkingYears
+
+## Looking more at JobLevel and MonthlyIncome
+
+```{r}
+qqplot(factor(df$JobLevel), df$MonthlyIncome)
+
+ggplot(df, mapping = aes(x = MonthlyIncome, color = factor(JobLevel), fill = factor(JobLevel))) + 
+  geom_histogram(aes(x = MonthlyIncome)) +
+  facet_wrap(factor(df$JobLevel)) + 
+  scale_color_jco() +
+  scale_fill_jco()
+```
+
+It looks like there is a linear relationship between JobLevel and MonthlyIncome, and the respective MonthlyIncome ranges are somewhat normal.
+
+## Looking more at JobRole and MonthlyIncome
+
+```{r}
+qqplot(df$JobRole, df$MonthlyIncome)
+
+ggplot(df, mapping = aes(x = MonthlyIncome, color = JobRole, fill = JobRole)) + 
+  geom_histogram(aes(x = MonthlyIncome)) +
+  facet_wrap(df$JobRole) + 
+  scale_color_jco() +
+  scale_fill_jco()
+
+```
+It looks like there is a relationship, though non-linear. Also the roles to be are: Research Director and Manager.  I'll run with Research Director. 
+
+
+## Looking more at TotalWorkingYears and MonthlyIncome
+
+```{r}
+qqplot(factor(df$TotalWorkingYears), df$MonthlyIncome)
+
+dfTemp <- df %>% filter(TotalWorkingYears < 10)
+ggplot(dfTemp, mapping = aes(x = MonthlyIncome, color = factor(TotalWorkingYears), fill = factor(TotalWorkingYears))) + 
+  geom_histogram(aes(x = MonthlyIncome)) +
+  facet_wrap(factor(dfTemp$TotalWorkingYears)) + 
+  scale_color_jco() +
+  scale_fill_jco()
+```
+It looks like TotalWorkingYears has a linear relationship with MonthlyIncome.
+
+# Near Zero Variance
+
+```{r}
+nzv <- nearZeroVar(df, saveMetrics = T)
+nrow(nzv %>% filter(nzv == TRUE))
+```
+
+No variables are near zero variance
+
+# Identify the top factors contributing to Attrition
 
 ```{r}
 set.seed(1234)
@@ -290,13 +431,40 @@ varImp(RFresults)
 
 The Top factors that contribute to turnover are:
 1. OverTime
-...
-
 
 # Clean/Train/Test Split
 
 ```{r}
-clean.for.modeling <- function(dirty) {
+# - Load and Clean for MonthlyIncome
+
+clean.for.modeling.monthly_income <- function(dirty) {
+  dfTemp <- dirty %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -Attrition))
+
+  #TODO: log these: DistanceFromHome, MonthlyIncome, PercentSalaryHike, TotalWorkingYears, YearsAtCompany, YearsInCurrentRole, YearsSinceLastPromotion, and YearsWithCurrManager
+  
+  dfTemp
+}
+
+load.and.clean.for.monthly_income <- function() {
+  df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
+  df <- clean.for.modeling.monthly_income(df)
+  
+  df <- df %>% dplyr::select(c(-ID))
+  df <- df %>% relocate(MonthlyIncome, .after = last_col())
+}
+
+df <- load.and.clean.for.monthly_income()
+
+set.seed(1234)
+num_rows <- nrow(df)
+train_idx <- sample(1:num_rows, 0.8 * num_rows)
+test_idx <- setdiff(1:num_rows, train_idx)
+mi.train <- df[train_idx, ]
+mi.test <- df[test_idx, ]
+
+# - Load and Clean for Attrition
+
+clean.for.modeling.attrition <- function(dirty) {
   dfTemp <- dirty %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount))
 
   dfTemp$age_group <- cut(dfTemp$Age, 
@@ -306,59 +474,124 @@ clean.for.modeling <- function(dirty) {
   dfTemp
 }
 
-df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
-df <- clean.for.modeling(df)
+load.and.clean.for.attrition <- function() {
+  df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
+  df <- clean.for.modeling.attrition(df)
+  
+  df <- df %>% dplyr::select(c(-ID))
+  df <- df %>% relocate(Attrition, .after = last_col())
+}
 
-df <- df %>% dplyr::select(c(-ID))
-df <- df %>% relocate(Attrition, .after = last_col())
+df <- load.and.clean.for.attrition()
 
 set.seed(1234)
 num_rows <- nrow(df)
 train_idx <- sample(1:num_rows, 0.8 * num_rows)
 test_idx <- setdiff(1:num_rows, train_idx)
-train <- df[train_idx, ]
-test <- df[test_idx, ]
+at.train <- df[train_idx, ]
+at.test <- df[test_idx, ]
 ```
 
+# MonthlyIncome Models
 
-# MonthlyIncome
+## Linear Regression
 
-# Random Forest
+```{r}
+lr_control <- trainControl(method = "cv", num = 5)
 
-# Train a Random Forest, tuning mtry and splitrule
+mi.fitLR <- train(MonthlyIncome ~ ., 
+               data = mi.train, 
+               method = "glm", 
+               trControl = lr_control
+               )
+mi.fitLR
+```
+
+```{r}
+summary(mi.fitLR)
+```
+
+It's sad that Age is negatively correlated with MonthlyIncome.  But not as negatively as working in Human Resources. Or being Single.  Ouch.
+
+```{r}
+test.MonthlyIncome_LR <- predict(mi.fitLR, newdata = mi.test)
+mi.fitLR.RMSE <- RMSE(test.MonthlyIncome_LR, mi.test$MonthlyIncome)
+mi.fitLR.RMSE
+RMSE(test.MonthlyIncome_LR, mi.test$MonthlyIncome) / mean(mi.test$MonthlyIncome)
+```
+
+This model is performing well within the $3,000 goal, so moving on to...
+
+## Random Forest
+
+### Train a Random Forest, tuning mtry and splitrule
 
 ```{r}
 set.seed(12)
 cv_control <- trainControl(method="cv", 
                      num = 5)
 
-fitRF.MonthlyIncome <- train(MonthlyIncome ~ ., 
-               data = train, 
+mi.fitRF <- train(MonthlyIncome ~ ., 
+               data = mi.train, 
                method = "ranger", 
+               importance = "impurity",
                trControl = cv_control,
                num.threads = 6,
                num.trees = 100
                )
-fitRF.MonthlyIncome
+mi.fitRF
 ```
 
-# Performance on Training Set
+### Performance on Training Set
 
 ```{r}
-summary(fitRF.MonthlyIncome)
-plot(fitRF.MonthlyIncome)
+summary(mi.fitRF)
+plot(mi.fitRF)
 ```
 
 ```{r}
-test.MonthlyIncome_RF <- predict(fitRF.MonthlyIncome, newdata = test)
-RMSE(test.MonthlyIncome_RF, test$MonthlyIncome)
-RMSE(test.MonthlyIncome_RF, test$MonthlyIncome) / mean(test$MonthlyIncome)
+test.MonthlyIncome_RF <- predict(mi.fitRF, newdata = mi.test)
+mi.fitRF.RMSE <- RMSE(test.MonthlyIncome_RF, mi.test$MonthlyIncome)
+mi.fitRF.RMSE
+RMSE(test.MonthlyIncome_RF, mi.test$MonthlyIncome) / mean(mi.test$MonthlyIncome)
+```
+
+### Min Depth Distribution
+
+```{r}
+mi.forest_frame <- min_depth_distribution(mi.fitRF$finalModel)
+plot_min_depth_distribution(mi.forest_frame)
+```
+
+### Mean minimal depth for most frequent interactions
+
+```{r echo=F, warning=F, message=F}
+plot_min_depth_interactions(mi.fitRF$finalModel, k=7)
+```
+
+```{r echo=F, message=F}
+multi_imps = measure_importance(mi.fitRF$finalModel)
+plot_importance_ggpairs(multi_imps)
+```
+
+## Comparing MonthlyIncome Models
+
+```{r}
+mi.compare <- data.frame(model = c("Linear Regression", "Random Forest"), RMSE = c(mi.fitLR.RMSE, mi.fitRF.RMSE))
+mi.compare
+```
+
+Both models perform well below the $3,000 RMSE threshold for this case study. Since Random Forest has slightly lower RMSE, Random Forest wins.
+
+
+```{r}
+mi.winner <- mi.fitRF
 ```
 
 
-# Attrition ------
+# Attrition
 
-# KNN
+## KNN
 
 For KNN, I'm optimizing for Kappa, which is more appropriate for imbalanced classes
 
@@ -370,11 +603,10 @@ cv_control <- trainControl(
   number = 5,
   classProbs = TRUE,
   savePredictions = TRUE,
-#  summaryFunction = twoClassSummary
   )
 
-fitKNN <- train(Attrition ~ ., 
-               data = train, 
+at.fitKNN <- train(Attrition ~ ., 
+               data = at.train, 
                method = "knn", 
                metric = "Kappa",
                trControl = cv_control,
@@ -382,37 +614,38 @@ fitKNN <- train(Attrition ~ .,
 #               tuneLength=20
                tuneGrid = expand.grid(k = c(1:5, 10, 20))
                )  
-fitKNN
+at.fitKNN
 ```
 
 ```{r}
-plot(fitKNN)
-confusionMatrix(fitKNN)
+plot(at.fitKNN)
+confusionMatrix(at.fitKNN)
 ```
 
 ```{r}
-fitKNN.predictions.raw <- predict(fitKNN, newdata = test, type="raw")
-fitKNN.predictions.prob <- predict(fitKNN, newdata = test, type="prob")
-confusionMatrix(fitKNN.predictions.raw, test$Attrition, positive="Yes")
+at.fitKNN.predictions.raw <- predict(at.fitKNN, newdata = at.test, type="raw")
+at.fitKNN.predictions.prob <- predict(at.fitKNN, newdata = at.test, type="prob")
+confusionMatrix(at.fitKNN.predictions.raw, at.test$Attrition, positive="Yes")
 ```
 
 ```{r warning=F, message=F}
-prediction.probabilities <- fitKNN.predictions.prob$Yes
-predicted.classes <- fitKNN.predictions.raw
-observed.classes <- test$Attrition
+at.prediction.probabilities <- at.fitKNN.predictions.prob$Yes
+at.predicted.classes <- at.fitKNN.predictions.raw
+at.observed.classes <- at.test$Attrition
 
-res.roc <- roc(observed.classes, prediction.probabilities)
-plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
+at.res.roc <- roc(at.observed.classes, at.prediction.probabilities)
+plot.roc(at.res.roc, print.auc = TRUE, print.thres = "best")
 ```
 
 ```{r}
 # Get the best cutoff for balancing Sensitivity and Specificity
-cutoff <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
+cutoff <- coords(at.res.roc, "best", ret="threshold", transpose = FALSE)$threshold
 
 # Predict using the best cutoff and confirm with a Confusion Matrix
-predicted.classes.balanced <- factor(
-  ifelse( fitKNN.predictions.prob$Yes > cutoff, "Yes", "No"), levels=c("No","Yes"))
-confusionMatrix(predicted.classes.balanced, test$Attrition, positive="Yes")
+at.predicted.classes.balanced <- factor(
+  ifelse( at.fitKNN.predictions.prob$Yes > cutoff, "Yes", "No"), levels=c("No","Yes"))
+at.fitKNN.cm <- confusionMatrix(at.predicted.classes.balanced, at.test$Attrition, positive="Yes")
+at.fitKNN.cm
 ```
 
 
@@ -430,73 +663,103 @@ cv_control <- trainControl(method="cv",
                      num = 5)
 
 rf_grid <- expand.grid(
-  mtry = 4:8,
+  mtry = 6:12,
   splitrule = c("gini","extratrees", "hellinger"),
   min.node.size = c(1)
 )
 
-fitRF <- train(Attrition ~ ., 
-               data = train, 
+at.fitRF <- train(Attrition ~ ., 
+               data = at.train, 
                method = "ranger", 
                metric = "ROC",
+               importance = "impurity",
                trControl = cv_control,
                num.threads = 6,
                num.trees = 100,
                tuneGrid=rf_grid)  
-fitRF
+at.fitRF
 ```
 
 # Performance on Training Set
 
 ```{r}
-plot(fitRF)
-confusionMatrix(fitRF)
+plot(at.fitRF)
+confusionMatrix(at.fitRF)
+```
+
+## Min Depth Distribution
+
+```{r}
+at.forest_frame <- min_depth_distribution(at.fitRF$finalModel)
+plot_min_depth_distribution(at.forest_frame)
+```
+Overtime is clearly the most influential variable on its own, but let's look at interactions...
+
+### Mean minimal depth for most frequent interactions
+
+```{r echo=F, warning=F, message=F}
+plot_min_depth_interactions(at.fitRF$finalModel, k=7)
+```
+
+An interesting observation is that HourlyRate on its own is one of the less influential variables, but when combined with OverTimeYes, it becomes the most influential interaction. 
+
+### Other measures of importance
+
+```{r echo=F, message=F}
+at.multi_imps = measure_importance(at.fitRF$finalModel)
+plot_importance_ggpairs(at.multi_imps)
 ```
 
 # Performance on Test Set
 
 ```{r}
-fitRF.predictions.raw <- predict(fitRF, newdata = test, type="raw")
-fitRF.predictions.prob <- predict(fitRF, newdata = test, type="prob")
-confusionMatrix(fitRF.predictions.raw, test$Attrition, positive="Yes")
+at.fitRF.predictions.raw <- predict(at.fitRF, newdata = at.test, type="raw")
+at.fitRF.predictions.prob <- predict(at.fitRF, newdata = at.test, type="prob")
+confusionMatrix(at.fitRF.predictions.raw, at.test$Attrition, positive="Yes")
 ```
-
 
 # ROC Curve and Optimal Cutoff
 
 ```{r warning=F, message=F}
-prediction.probabilities <- fitRF.predictions.prob$Yes
-predicted.classes <- fitRF.predictions.raw
-observed.classes <- test$Attrition
+at.prediction.probabilities <- at.fitRF.predictions.prob$Yes
+at.predicted.classes <- at.fitRF.predictions.raw
+at.observed.classes <- at.test$Attrition
 
 # Compute roc
-res.roc <- roc(observed.classes, prediction.probabilities)
-plot.roc(res.roc, print.auc = TRUE, print.thres = "best")
-
-# If we wanted cutoffs for specific specificities we specifically specify, we could do THIS:
-#roc.data <- data_frame(
-#  thresholds = res.roc$thresholds,
-#  sensitivity = res.roc$sensitivities,
-#  specificity = res.roc$specificities
-#)
-# Then we can get the cutoff for specificity = <something> like this
-#roc.data %>% filter(specificity >= 0.6)
-#...or similar
-
+at.res.roc <- roc(at.observed.classes, at.prediction.probabilities)
+plot.roc(at.res.roc, print.auc = TRUE, print.thres = "best")
 ```
 
 ```{r}
 # Get the best cutoff for balancing Sensitivity and Specificity
-cutoff.randomforest <- coords(res.roc, "best", ret="threshold", transpose = FALSE)$threshold
+at.cutoff.randomforest <- coords(at.res.roc, "best", ret="threshold", transpose = FALSE)$threshold
 
 # Predict using the best cutoff and confirm with a Confusion Matrix
-predicted.classes.balanced <- factor(
-  ifelse( fitRF.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
-confusionMatrix(predicted.classes.balanced, test$Attrition, positive="Yes")
+at.predicted.classes.balanced <- factor(
+  ifelse( at.fitRF.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
+at.fitRF.cm <- confusionMatrix(at.predicted.classes.balanced, at.test$Attrition, positive="Yes")
+at.fitRF.cm
 ```
 
 
-# Model Comparison
+# Accuracy Model Comparison
+
+```{r}
+atModel <- c("KNN", "Random Forest")
+atAccuracy <- c(at.fitKNN.cm$overall['Accuracy'], at.fitRF.cm$overall['Accuracy'])
+atKappa <- c(at.fitKNN.cm$overall['Kappa'], at.fitRF.cm$overall['Kappa'])
+atSensitivity <- c(at.fitKNN.cm$byClass['Sensitivity'], at.fitRF.cm$byClass['Sensitivity'])
+atSpecificity <- c(at.fitKNN.cm$byClass['Specificity'], at.fitRF.cm$byClass['Specificity'])
+at.compare <- data.frame(atModel, atAccuracy, atKappa, atSensitivity, atSpecificity)
+at.compare
+```
+
+KNN is overall more accurate, but Random Forest has slightly higher Kappa and more Sensitivity, while being a bit less Specific. Also, KNN dipped below 60 on Sensitivity, so for the purposes of this case study, which requires both Sensitivity and Specificity to be more than 60, Random Forest wins.
+
+```{r}
+at.winner <- at.fitRF
+at.winner.cutoff <- at.cutoff.randomforest
+```
 
 
 # Comp Set: No Attrition
@@ -512,11 +775,11 @@ dfNoAttrition <- clean.for.modeling(dfNoAttrition)
 
 ```{r}
 # Use the best model to get predicted probabilities for each class
-dfNoAttrition.predictions.prob <- predict(fitRF, newdata = dfNoAttrition, type="prob")
+dfNoAttrition.predictions.prob <- predict(at.winner, newdata = dfNoAttrition, type="prob")
 
 # Use the most balanced cutoff on the predicted probabilities to get the Attrition values
 dfNoAttrition.predictions.class <- factor(
-  ifelse( dfNoAttrition.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
+  ifelse( dfNoAttrition.predictions.prob$Yes > at.winner.cutoff, "Yes", "No"), levels=c("No","Yes"))
 ```
 
 ## Save
@@ -538,7 +801,7 @@ dfNoSalary <- clean.for.modeling(dfNoSalary)
 ## Predict Salary
 
 ```{r}
-dfNoSalary$MonthlyIncome <- predict(fitRF.MonthlyIncome, newdata = dfNoSalary)
+dfNoSalary$MonthlyIncome <- predict(mi.winner, newdata = dfNoSalary)
 ```
 
 

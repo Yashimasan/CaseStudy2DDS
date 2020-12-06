@@ -2,7 +2,9 @@
 title: "CaseStudy2DDS"
 author: "Rinku Lichti"
 date: "11/25/2020"
-output: html_document
+output:
+  word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -13,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # Install and Load Libraries as needed
 library(pacman)
 p_load("summarytools", "dplyr", "ggplot2", "ggsci", "caret", "corrplot", "GGally", "pROC", "readr",
-       "randomForestExplainer")
+       "randomForestExplainer", "cowplot")
 ```
 
 # Load the data
@@ -25,7 +27,7 @@ df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
 # Summarize the raw data
 
 ```{r}
-print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
+#print(dfSummary(df, graph.magnif = 0.75), method = 'browser')
 ```
 
 From dfSummary, I can see: 
@@ -99,7 +101,8 @@ plot_attrition_rate_by <- function(data, column) {
 
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "Age")
+trend1 <- plot_attrition_rate_by(df, "Age")
+trend1
 ```
 
 ```{r}
@@ -126,74 +129,94 @@ plot_attrition_rate_by(df, "DistanceFromHome")
 ## JobSatisfaction
 
 ```{r  warning=F, message=F}
-plot_attrition_rate_by(df, "JobSatisfaction")
+trend2 <- plot_attrition_rate_by(df, "JobSatisfaction")
+trend2
 ```
 
 ## JobLevel
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "JobLevel")
+trend3 <- plot_attrition_rate_by(df, "JobLevel")
+trend3
 ```
 ## JobInvolvement
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "JobInvolvement")
+trend4 <- plot_attrition_rate_by(df, "JobInvolvement")
+trend4
 ```
 
 ## NumCompaniesWorked
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "NumCompaniesWorked")
+trend5 <- plot_attrition_rate_by(df, "NumCompaniesWorked")
+trend5
 ```
 
 ## PercentSalaryHike
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "PercentSalaryHike")
+trend6 <- plot_attrition_rate_by(df, "PercentSalaryHike")
+trend6
 ```
 ## TrainingTimesLastYear
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "TrainingTimesLastYear")
+trend7 <- plot_attrition_rate_by(df, "TrainingTimesLastYear")
+trend7
 ```
 
 ## WorkLifeBalance
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "WorkLifeBalance")
+trend8 <- plot_attrition_rate_by(df, "WorkLifeBalance")
+trend8
 ```
 
 ## YearsAtCompany
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "YearsAtCompany")
+trend9 <- plot_attrition_rate_by(df, "YearsAtCompany")
+trend9
 ```
 ## YearsInCurrentRole
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "YearsInCurrentRole")
+trend10 <- plot_attrition_rate_by(df, "YearsInCurrentRole")
+trend10
 ```
 
 ## YearsSinceLastPromotion
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "YearsSinceLastPromotion")
+trend11 <- plot_attrition_rate_by(df, "YearsSinceLastPromotion")
+trend11
 ```
 ## YearsWithCurrManager
 
 ```{r warning=F, message=F}
-plot_attrition_rate_by(df, "YearsWithCurrManager")
+trend12 <- plot_attrition_rate_by(df, "YearsWithCurrManager")
+trend12
 ```
 
 ## Compensation
 
 ```{r}
 plot_attrition_rate_by(df, "HourlyRate")
-plot_attrition_rate_and_facet_by(df, "HourlyRate", "OverTime")
 plot_attrition_rate_by(df, "MonthlyRate")
 plot_attrition_rate_by(df, "DailyRate")
 plot_attrition_rate_by(df, "MonthlyIncome")
 ```
+
+## Trends Grid
+
+```{r}
+trends <- plot_grid(trend1, trend2, trend3, trend4, trend5, trend6, trend7, trend8, 
+                    trend9, trend10, trend11, trend12, ncol = 3, labels = "auto")
+
+trends
+```
+
 
 
 ## Overtime
@@ -278,7 +301,7 @@ plot_attrition_rate_and_facet_by(df, "Age", "JobRole")
 # Look for high correlation
 
 # Only look at numeric fields, and omit ones with constant values
-dfTemp <- dfTemp %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -ID))
+dfTemp <- df %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -ID))
 df.numeric <- dfTemp[, sapply(dfTemp, is.numeric)]
 df.without_na <- na.omit(df.numeric)
 
@@ -296,40 +319,6 @@ While there are some intuitive correlations, such as YearsAtCompany and YearsWit
 ```{r warning=F, message=F}
 ggpairs(df.without_na[,high_corrs])
 ```
-
-
-# T-test to compare each group
-Because both distrubitions differ significantly from normality we log tranform them in order to do a t-test and see if there is evidence that the distributions differ significantly from each other. 
-
-The QQ Plot of the log transformed MonthlyIncome for each group shows much better adherence to normality, and brings the variance of each group much closer together. 
-
-The T-test itself shows there is a significant difference between the Monthly Incomes of "Yes" vs "No" attrition groups, p-value < 0.0001. This is strong evidence that MonthlyIncome has an effect on Attrition
-
-
-```{r}
-# make vectors for monthly income by attrition
-#emp_clean.df$MonthlyIncome[emp_clean.df$Attrition == "Yes"] -> mo_income_yes
-#emp_clean.df$MonthlyIncome[emp_clean.df$Attrition == "No"] -> mo_income_no
-# number of yes vs no attrition
-# length(mo_income_yes)
-# length(mo_income_no)
-# summary(mo_income_yes) 
-# summary(mo_income_no) 
-# sd(mo_income_yes) 
-# sd(mo_income_no) 
-# # histogram of each
-# hist(mo_income_yes, xlab = "Dollars", main = "Salary for Attrition: Yes")
-# hist(mo_income_no, xlab = "Dollars", main = "Salary for Attrition: No")
-# 
-# # taking log of each
-# qqnorm(log(mo_income_yes))
-# qqnorm(log(mo_income_no))
-# # even using the log of both still get 
-# # to be safe we account for unequal variance
-# t.test(log(mo_income_no), log(mo_income_yes), var.equal = F) 
-
-```
-
 
 # Identify the top factors contributing to Monthly Income
 
@@ -355,6 +344,13 @@ varImp(RFresults)
 ```
 
 For MonthlyIncome, the top factors are JobLevel, JobRole, and TotalWorkingYears
+
+
+```{r}
+dfTemp <- df %>% select(MonthlyIncome, JobLevel, JobRole, TotalWorkingYears)
+ggpairs(dfTemp)
+```
+
 
 ## Looking more at JobLevel and MonthlyIncome
 
@@ -429,8 +425,13 @@ RFresults
 varImp(RFresults)
 ```
 
-The Top factors that contribute to turnover are:
-1. OverTime
+
+```{r}
+dfTemp <- df %>% select(Attrition, JobRole, JobInvolvement, MonthlyIncome, StockOptionLevel, JobLevel)
+x <- ggpairs(dfTemp)
+```
+
+
 
 # Clean/Train/Test Split
 
@@ -439,21 +440,23 @@ The Top factors that contribute to turnover are:
 
 clean.for.modeling.monthly_income <- function(dirty) {
   dfTemp <- dirty %>% dplyr::select(c(-StandardHours, -Over18, -EmployeeCount, -Attrition))
-
-  #TODO: log these: DistanceFromHome, MonthlyIncome, PercentSalaryHike, TotalWorkingYears, YearsAtCompany, YearsInCurrentRole, YearsSinceLastPromotion, and YearsWithCurrManager
-  
   dfTemp
 }
 
-load.and.clean.for.monthly_income <- function() {
-  df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
+load.and.clean.for.monthly_income <- function(filename, removeID = TRUE) {
+  df <- read.csv(filename, stringsAsFactors=TRUE)
   df <- clean.for.modeling.monthly_income(df)
   
-  df <- df %>% dplyr::select(c(-ID))
-  df <- df %>% relocate(MonthlyIncome, .after = last_col())
+  if (removeID) {
+    df <- df %>% dplyr::select(c(-ID))
+  }
+  if ("MonthlyIncome" %in% names(df)) {
+    df <- df %>% relocate(MonthlyIncome, .after = last_col())
+  }
+  df
 }
 
-df <- load.and.clean.for.monthly_income()
+df <- load.and.clean.for.monthly_income("doc/CaseStudy2-data.csv", TRUE)
 
 set.seed(1234)
 num_rows <- nrow(df)
@@ -474,15 +477,20 @@ clean.for.modeling.attrition <- function(dirty) {
   dfTemp
 }
 
-load.and.clean.for.attrition <- function() {
-  df <- read.csv("doc/CaseStudy2-data.csv", stringsAsFactors=TRUE)
+load.and.clean.for.attrition <- function(filename, removeID = TRUE) {
+  df <- read.csv(filename, stringsAsFactors=TRUE)
   df <- clean.for.modeling.attrition(df)
   
-  df <- df %>% dplyr::select(c(-ID))
-  df <- df %>% relocate(Attrition, .after = last_col())
+  if (removeID) {
+    df <- df %>% dplyr::select(c(-ID))
+  }
+  if ("Attrition" %in% names(df)) {
+    df <- df %>% relocate(Attrition, .after = last_col())
+  }
+  df
 }
 
-df <- load.and.clean.for.attrition()
+df <- load.and.clean.for.attrition("doc/CaseStudy2-data.csv", TRUE)
 
 set.seed(1234)
 num_rows <- nrow(df)
@@ -512,6 +520,23 @@ summary(mi.fitLR)
 ```
 
 It's sad that Age is negatively correlated with MonthlyIncome.  But not as negatively as working in Human Resources. Or being Single.  Ouch.
+
+```{r}
+plot(mi.fitLR$finalModel, 1)
+plot(mi.fitLR$finalModel, 2)
+plot(mi.fitLR$finalModel, 3)
+plot(mi.fitLR$finalModel, 4)
+qplot(mi.fitLR$finalModel$residuals,
+      geom = "histogram",
+      bins = 30) +
+      labs(title = "Histogram of residuals",
+      x = "residual")
+
+#plot_grid(p1, p2, p3, p4, p5, ncol = 2, labels = "auto")
+```
+
+
+### RMSE for Test data
 
 ```{r}
 test.MonthlyIncome_LR <- predict(mi.fitLR, newdata = mi.test)
@@ -563,11 +588,17 @@ mi.forest_frame <- min_depth_distribution(mi.fitRF$finalModel)
 plot_min_depth_distribution(mi.forest_frame)
 ```
 
+JobLevel has by far the most influence on MonthlyIncome, which makes sense given what we saw in the EDA. Really no surprises here.
+
+
 ### Mean minimal depth for most frequent interactions
 
 ```{r echo=F, warning=F, message=F}
 plot_min_depth_interactions(mi.fitRF$finalModel, k=7)
 ```
+
+Interaction between JobLevel and Age occurs most frequently in the random forest of trees.
+It's interesting that JobRole Research Director and TotalWorkingYears interact moderately often and on average high up in their respective trees.
 
 ```{r echo=F, message=F}
 multi_imps = measure_importance(mi.fitRF$finalModel)
@@ -663,7 +694,7 @@ cv_control <- trainControl(method="cv",
                      num = 5)
 
 rf_grid <- expand.grid(
-  mtry = 6:12,
+  mtry = 4:10,
   splitrule = c("gini","extratrees", "hellinger"),
   min.node.size = c(1)
 )
@@ -736,7 +767,7 @@ at.cutoff.randomforest <- coords(at.res.roc, "best", ret="threshold", transpose 
 
 # Predict using the best cutoff and confirm with a Confusion Matrix
 at.predicted.classes.balanced <- factor(
-  ifelse( at.fitRF.predictions.prob$Yes > cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
+  ifelse( at.fitRF.predictions.prob$Yes > at.cutoff.randomforest, "Yes", "No"), levels=c("No","Yes"))
 at.fitRF.cm <- confusionMatrix(at.predicted.classes.balanced, at.test$Attrition, positive="Yes")
 at.fitRF.cm
 ```
@@ -745,12 +776,12 @@ at.fitRF.cm
 # Accuracy Model Comparison
 
 ```{r}
-atModel <- c("KNN", "Random Forest")
-atAccuracy <- c(at.fitKNN.cm$overall['Accuracy'], at.fitRF.cm$overall['Accuracy'])
-atKappa <- c(at.fitKNN.cm$overall['Kappa'], at.fitRF.cm$overall['Kappa'])
-atSensitivity <- c(at.fitKNN.cm$byClass['Sensitivity'], at.fitRF.cm$byClass['Sensitivity'])
-atSpecificity <- c(at.fitKNN.cm$byClass['Specificity'], at.fitRF.cm$byClass['Specificity'])
-at.compare <- data.frame(atModel, atAccuracy, atKappa, atSensitivity, atSpecificity)
+Model <- c("KNN", "Random Forest")
+Accuracy <- c(at.fitKNN.cm$overall['Accuracy'], at.fitRF.cm$overall['Accuracy'])
+Kappa <- c(at.fitKNN.cm$overall['Kappa'], at.fitRF.cm$overall['Kappa'])
+Sensitivity <- c(at.fitKNN.cm$byClass['Sensitivity'], at.fitRF.cm$byClass['Sensitivity'])
+Specificity <- c(at.fitKNN.cm$byClass['Specificity'], at.fitRF.cm$byClass['Specificity'])
+at.compare <- data.frame(Model, Accuracy, Kappa, Sensitivity, Specificity)
 at.compare
 ```
 
@@ -767,8 +798,7 @@ at.winner.cutoff <- at.cutoff.randomforest
 ## Load the No Attrition comp set and clean it the same way we did for modeling
 
 ```{r}
-dfNoAttrition <- read.csv("doc/CaseStudy2CompSet No Attrition.csv", stringsAsFactors=TRUE)
-dfNoAttrition <- clean.for.modeling(dfNoAttrition)
+dfNoAttrition <- load.and.clean.for.attrition("doc/CaseStudy2CompSet No Attrition.csv", removeID = FALSE)
 ```
 
 ## Predict Attrition using our best model from the training above
@@ -794,8 +824,7 @@ write.csv(dfNoAttritionSubmission, "Case2PredictionsLichti Attrition.csv")
 ## Load the No Salary comp set and clean it the same way we did for modeling
 
 ```{r}
-dfNoSalary <- read.csv("doc/CaseStudy2CompSet No Salary.csv", stringsAsFactors=TRUE)
-dfNoSalary <- clean.for.modeling(dfNoSalary)
+dfNoSalary <- load.and.clean.for.monthly_income("doc/CaseStudy2CompSet No Salary.csv", removeID = FALSE)
 ```
 
 ## Predict Salary
